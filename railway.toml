@@ -1,0 +1,12 @@
+[build]
+builder = "DOCKERFILE"
+
+# Daily brief + trial reel: Monday-Friday at 8am ET (13:00 UTC)
+[[crons]]
+schedule = "0 13 * * 1-5"
+command = "python3 agents.py daily"
+
+# Weekly content package: Every Monday at 9am ET (14:00 UTC)
+[[crons]]
+schedule = "0 14 * * 1"
+command = "python3 agents.py weekly"
