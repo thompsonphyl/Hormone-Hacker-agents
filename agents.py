@@ -238,14 +238,7 @@ def generate_reel_video(image_url, caption_text, day_of_week):
             top = (new_h - target_h) // 2
             img = img.crop((0, top, target_w, top + target_h))
 
-        # Add a subtle caption overlay at the bottom
-        draw = ImageDraw.Draw(img)
-        # Dark overlay bar at bottom
-        overlay = Image.new('RGBA', (target_w, 220), (0, 0, 0, 160))
-        img_rgba = img.convert('RGBA')
-        img_rgba.paste(overlay, (0, target_h - 220), overlay)
-        img = img_rgba.convert('RGB')
-
+        # No text overlay — caption goes in the GHL post text field, not burned onto the image
         # Save the processed image
         tmp_reel_img = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
         img.save(tmp_reel_img.name)
@@ -266,12 +259,12 @@ def generate_reel_video(image_url, caption_text, day_of_week):
             ffmpeg_params=['-crf', '28', '-preset', 'fast']
         )
 
-        # Upload to catbox.moe (free, permanent public CDN, no auth required)
+        # Upload to litterbox.catbox.moe (72h public CDN, no auth required)
         cdn_url = None
         with open(tmp_video.name, 'rb') as vf:
             upload_resp = requests.post(
-                'https://catbox.moe/user/api.php',
-                data={'reqtype': 'fileupload', 'userhash': ''},
+                'https://litterbox.catbox.moe/resources/internals/api.php',
+                data={'reqtype': 'fileupload', 'time': '72h'},
                 files={'fileToUpload': ('reel.mp4', vf, 'video/mp4')},
                 timeout=120
             )
