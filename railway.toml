@@ -1,12 +1,29 @@
 [build]
 builder = "DOCKERFILE"
 
-# Daily brief + trial reel: Monday-Friday at 8am ET (13:00 UTC)
+# ── Daily Auto-Post + Dispatcher + Trial Reel ─────────────────────────────────
+# Runs every weekday at 6am ET (10:00 UTC during EDT)
+# Monday also triggers: reel_ideas + linkedin + content
 [[crons]]
-schedule = "0 13 * * 1-5"
+name = "daily-agents"
+schedule = "0 10 * * 1-5"
 command = "python3 agents.py daily"
 
-# Weekly content package: Every Monday at 9am ET (14:00 UTC)
+# ── Weekly Content Package ────────────────────────────────────────────────────
+# Runs every Monday at 7am ET (11:00 UTC)
 [[crons]]
-schedule = "0 14 * * 1"
+name = "weekly-agents"
+schedule = "0 11 * * 1"
 command = "python3 agents.py weekly"
+
+# ── Saturday Lifestyle Content ────────────────────────────────────────────────
+[[crons]]
+name = "saturday-post"
+schedule = "0 10 * * 6"
+command = "python3 agents.py daily_post"
+
+# ── Sunday Mindset Content ────────────────────────────────────────────────────
+[[crons]]
+name = "sunday-post"
+schedule = "0 10 * * 0"
+command = "python3 agents.py daily_post"
