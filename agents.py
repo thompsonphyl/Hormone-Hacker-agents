@@ -199,16 +199,17 @@ def generate_reel_video(image_url, caption_text, day_of_week):
             ffmpeg_params=['-crf', '28', '-preset', 'fast']
         )
 
-        # Upload to CDN
-        result = __import__('subprocess').run(
-            ['manus-upload-file', '--webdev', tmp_video.name],
-            capture_output=True, text=True
-        )
+        # Upload to catbox.moe (free, permanent public CDN, no auth required)
         cdn_url = None
-        for line in result.stdout.split('\n'):
-            if 'CDN URL:' in line:
-                cdn_url = line.split('CDN URL:')[1].strip()
-                break
+        with open(tmp_video.name, 'rb') as vf:
+            upload_resp = requests.post(
+                'https://catbox.moe/user/api.php',
+                data={'reqtype': 'fileupload', 'userhash': ''},
+                files={'fileToUpload': ('reel.mp4', vf, 'video/mp4')},
+                timeout=120
+            )
+        if upload_resp.status_code == 200 and upload_resp.text.strip().startswith('https://'):
+            cdn_url = upload_resp.text.strip()
 
         # Cleanup
         os.unlink(tmp_img.name)
@@ -216,10 +217,10 @@ def generate_reel_video(image_url, caption_text, day_of_week):
         os.unlink(tmp_video.name)
 
         if cdn_url:
-            print(f'  Reel video generated: {cdn_url}')
+            print(f'  Reel video uploaded: {cdn_url}')
             return cdn_url
         else:
-            print(f'  Reel video upload failed: {result.stdout} {result.stderr}')
+            print(f'  Reel video upload failed: {upload_resp.text[:200]}')
             return None
     except Exception as e:
         print(f'  Reel video generation error: {e}')
