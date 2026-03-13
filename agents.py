@@ -353,7 +353,7 @@ REQUIREMENTS FOR EACH POST:
 - Strong scroll-stopping hook (first line)
 - Body: 60-90 words, warm and conversational
 - End with CTA: "Comment RESET for the Natural GLP-1 Midlife Reset Guide" or "Save this post" or "Share with a friend who needs this"
-- 10-15 relevant hashtags
+- 3-5 relevant hashtags (Instagram and TikTok limit — keep it tight and targeted)
 - No em dashes
 - No salesy language — educational and relatable first
 
