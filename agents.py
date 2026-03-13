@@ -769,6 +769,81 @@ Format as clean HTML with dark headers (#1a1a1a). Never use em dashes."""
     print("  Trial Reel Agent complete.")
 
 # ── Main Runner ───────────────────────────────────────────────────────────────
+def run_contact_export_agent():
+    """Pull new Resend subscribers from the past 7 days and email a CSV for Thrive Coach import."""
+    print("Running Weekly Contact Export Agent...")
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=7)
+
+    # Get all contacts from the General audience
+    AUDIENCE_ID = "89198282-b44b-42f1-979f-5b024e03b677"
+    resp = requests.get(
+        f"https://api.resend.com/audiences/{AUDIENCE_ID}/contacts",
+        headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
+    )
+    if resp.status_code != 200:
+        print(f"  Resend contacts fetch failed: {resp.status_code} {resp.text[:200]}")
+        return
+
+    contacts = resp.json().get("data", [])
+    # Filter to contacts created in the last 7 days
+    new_contacts = []
+    for c in contacts:
+        created = c.get("created_at", "")
+        if created:
+            try:
+                dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                if dt >= cutoff:
+                    new_contacts.append(c)
+            except Exception:
+                pass
+
+    if not new_contacts:
+        print("  No new subscribers in the past 7 days.")
+        # Still send a summary email
+        send_email(
+            "Weekly Contact Export — No New Subscribers",
+            "<p>No new workshop registrants were added to your Resend list in the past 7 days.</p>"
+        )
+        return
+
+    # Build CSV content
+    import csv, io
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["First Name", "Last Name", "Email", "Subscribed At"])
+    for c in new_contacts:
+        first = c.get("first_name", "")
+        last = c.get("last_name", "")
+        email = c.get("email", "")
+        created = c.get("created_at", "")[:10]
+        writer.writerow([first, last, email, created])
+    csv_content = output.getvalue()
+
+    # Email the CSV as an attachment (inline in the email body as a table + raw CSV)
+    rows_html = "".join(
+        f"<tr><td>{c.get('first_name','')}</td><td>{c.get('last_name','')}</td>"
+        f"<td>{c.get('email','')}</td><td>{c.get('created_at','')[:10]}</td></tr>"
+        for c in new_contacts
+    )
+    html = f"""
+    <h2>New Workshop Registrants — Past 7 Days ({len(new_contacts)} contacts)</h2>
+    <p>Import these into Thrive Coach via Settings &gt; Contacts &gt; Import CSV.</p>
+    <table border="1" cellpadding="6" style="border-collapse:collapse;font-family:sans-serif;font-size:14px">
+      <tr style="background:#f5f5f5"><th>First Name</th><th>Last Name</th><th>Email</th><th>Subscribed</th></tr>
+      {rows_html}
+    </table>
+    <br>
+    <p><strong>Raw CSV (copy &amp; paste into a .csv file):</strong></p>
+    <pre style="background:#f9f9f9;padding:12px;font-size:12px">{csv_content}</pre>
+    """
+    send_email(
+        f"Weekly Contact Export — {len(new_contacts)} New Registrants ({now.strftime('%b %d, %Y')})",
+        html
+    )
+    print(f"  Contact export sent: {len(new_contacts)} new subscribers.")
+
+
 AGENTS = {
     "daily_post":      run_daily_post_agent,
     "reel_ideas":      run_reel_ideas_agent,
@@ -779,6 +854,7 @@ AGENTS = {
     "app":             run_app_agent,
     "dispatcher":      run_task_dispatcher,
     "trial_reel":      run_trial_reel_agent,
+    "contact_export":  run_contact_export_agent,
 }
 
 def main():
@@ -799,7 +875,7 @@ def main():
         print(f"\n=== Hormone Hacker Agents — Daily Run ({today}) ===\n")
         daily_agents = ["daily_post", "dispatcher", "trial_reel"]
         if today == "Monday":
-            daily_agents += ["reel_ideas", "linkedin", "content"]
+            daily_agents += ["reel_ideas", "linkedin", "content", "contact_export"]
         if today in ["Tuesday", "Wednesday"]:
             daily_agents += ["email_nurture"]
         for name in daily_agents:
