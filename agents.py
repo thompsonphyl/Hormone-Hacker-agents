@@ -3,7 +3,7 @@ Hormone Hacker Content Agents
 Standalone Python agents for Phyllis Thompson / Hormone Hacker
 Runs on Railway via cron schedule — no Make.com required
 Auto-posts to GHL Social Planner (Facebook, Instagram, LinkedIn, TikTok)
-Emails all output to info@phyllishannahthompson.com via Resend API
+Emails all output to Phyllis@phyllishannahthompson.com via Resend API
 """
 
 import os
@@ -19,7 +19,7 @@ GHL_API_KEY     = os.environ.get("GHL_API_KEY", "pit-7fe5537a-e091-4b8c-842d-853
 GHL_LOCATION_ID = os.environ.get("GHL_LOCATION_ID", "jQOzG0xh0TF0mw1tyh8t")
 
 FROM_EMAIL = "hormones@support.phyllishannahthompson.com"
-TO_EMAIL   = "info@phyllishannahthompson.com"
+TO_EMAIL   = "Phyllis@phyllishannahthompson.com"
 
 # ── Branded Instagram Images (CDN URLs, mapped by day/pillar) ────────────────
 INSTAGRAM_IMAGES = {
