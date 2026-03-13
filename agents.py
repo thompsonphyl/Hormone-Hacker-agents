@@ -21,16 +21,8 @@ GHL_LOCATION_ID = os.environ.get("GHL_LOCATION_ID", "jQOzG0xh0TF0mw1tyh8t")
 FROM_EMAIL = "hormones@support.phyllishannahthompson.com"
 TO_EMAIL   = "Phyllis@phyllishannahthompson.com"
 
-# ── Branded Instagram Images (CDN URLs, mapped by day/pillar) ────────────────
-INSTAGRAM_IMAGES = {
-    "Monday":    "https://d2xsxph8kpxj0f.cloudfront.net/310519663375052884/KzUdmZmQg5hpo2Lg4ccVuH/hh_instagram_monday_glp1_d73ab32a.png",
-    "Tuesday":   "https://d2xsxph8kpxj0f.cloudfront.net/310519663375052884/KzUdmZmQg5hpo2Lg4ccVuH/hh_instagram_tuesday_nutrition_bbc78077.png",
-    "Wednesday": "https://d2xsxph8kpxj0f.cloudfront.net/310519663375052884/KzUdmZmQg5hpo2Lg4ccVuH/hh_instagram_quote_card_9d49358d.png",
-    "Thursday":  "https://d2xsxph8kpxj0f.cloudfront.net/310519663375052884/KzUdmZmQg5hpo2Lg4ccVuH/hh_instagram_thursday_perimenopause_5fc82c23.png",
-    "Friday":    "https://d2xsxph8kpxj0f.cloudfront.net/310519663375052884/KzUdmZmQg5hpo2Lg4ccVuH/hh_instagram_friday_workout_31e45f63.png",
-    "Saturday":  "https://d2xsxph8kpxj0f.cloudfront.net/310519663375052884/KzUdmZmQg5hpo2Lg4ccVuH/hh_instagram_quote_card_9d49358d.png",
-    "Sunday":    "https://d2xsxph8kpxj0f.cloudfront.net/310519663375052884/KzUdmZmQg5hpo2Lg4ccVuH/hh_instagram_quote_card_9d49358d.png",
-}
+# ── Gemini API Key (Imagen 4 for dynamic post images) ────────────────────────
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyBK9ZxVhl1WklEkTrHlVqM4utIhojJo_Oc")
 
 # ── GHL User ID (from existing posts' createdBy field) ───────────────────────
 GHL_USER_ID = os.environ.get("GHL_USER_ID", "LnjbrtBaqeOZDhGaILxA")
@@ -139,6 +131,81 @@ def send_email(subject, html_body, to=None):
     return result
 
 # ── Video Generation Helper ──────────────────────────────────────────────────
+def generate_post_image(caption_text, pillar, day_of_week):
+    """
+    Generate a unique, relevant image for today's post using Gemini Imagen 4.
+    Returns a public CDN URL for the image, or None on failure.
+    """
+    import base64, tempfile
+
+    # Build a detailed image prompt from the post content and pillar
+    pillar_visuals = {
+        "Monday":    "GLP-1 hormone education, blood sugar balance, metabolism, warm kitchen or morning routine",
+        "Tuesday":   "hormone-friendly foods, colorful whole foods, meal prep, protein-rich plate, warm earthy tones",
+        "Wednesday": "transformation, celebration, confident woman smiling, before-and-after energy, warm light",
+        "Thursday":  "perimenopause wellness, calm bedroom, woman journaling or meditating, soft morning light",
+        "Friday":    "hormone-friendly workout, woman walking outdoors or doing strength training, golden hour",
+        "Saturday":  "morning wellness routine, supplements, herbal tea, clean kitchen, lifestyle aesthetic",
+        "Sunday":    "mindset and reflection, woman in nature, journaling, peaceful Sunday morning, soft light",
+    }
+    visual_context = pillar_visuals.get(day_of_week, "wellness lifestyle, confident woman in midlife, warm natural light")
+
+    # Extract key theme words from the caption (first 120 chars)
+    caption_snippet = caption_text[:120].replace('"', '').replace("'", '')
+
+    prompt = (
+        f"Professional wellness lifestyle photo for Instagram. Theme: {visual_context}. "
+        f"Content context: {caption_snippet}. "
+        f"Style: warm earthy tones, golden hour natural light, empowering and authentic, "
+        f"confident Black woman in her 40s-50s, hormone health and midlife wellness aesthetic, "
+        f"clean and editorial, no text overlays, 9:16 vertical portrait format."
+    )
+
+    try:
+        resp = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key={GEMINI_API_KEY}",
+            headers={"Content-Type": "application/json"},
+            json={
+                "instances": [{"prompt": prompt}],
+                "parameters": {"sampleCount": 1, "aspectRatio": "9:16"}
+            },
+            timeout=60
+        )
+        if resp.status_code != 200:
+            print(f"  Imagen 4 error: {resp.status_code} {resp.text[:200]}")
+            return None
+
+        img_b64 = resp.json()["predictions"][0].get("bytesBase64Encoded", "")
+        if not img_b64:
+            print("  Imagen 4: no image data returned")
+            return None
+
+        # Save to temp file
+        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+        tmp.write(base64.b64decode(img_b64))
+        tmp.close()
+
+        # Upload to catbox.moe CDN
+        with open(tmp.name, "rb") as f:
+            upload_resp = requests.post(
+                "https://catbox.moe/user/api.php",
+                data={"reqtype": "fileupload"},
+                files={"fileToUpload": ("post_image.jpg", f, "image/jpeg")},
+                timeout=30
+            )
+        cdn_url = upload_resp.text.strip()
+        if cdn_url.startswith("https://"):
+            print(f"  Imagen 4 image generated and uploaded: {cdn_url}")
+            return cdn_url
+        else:
+            print(f"  CDN upload failed: {cdn_url[:100]}")
+            return None
+
+    except Exception as e:
+        print(f"  generate_post_image error: {e}")
+        return None
+
+
 def generate_reel_video(image_url, caption_text, day_of_week):
     """
     Downloads the branded image, converts it to a 9:16 reel video (15 seconds),
@@ -419,12 +486,13 @@ STORY SCRIPT:
 
     print(f"  Generated {len(posts)} posts for {day_of_week} ({pillar[:40]}...)")
 
-    # Get the branded image for today's Instagram posts
-    instagram_image = INSTAGRAM_IMAGES.get(day_of_week, INSTAGRAM_IMAGES["Sunday"])
+    # Generate a fresh, relevant image for today's posts using Gemini Imagen 4
+    print("  Generating post image with Gemini Imagen 4...")
+    instagram_image = generate_post_image(posts[0] if posts else "", pillar, day_of_week)
 
-    # Generate reel video from today's branded image
-    print("  Generating reel video from branded image...")
-    reel_video_url = generate_reel_video(instagram_image, posts[0] if posts else "", day_of_week)
+    # Generate reel video from today's AI-generated image
+    print("  Generating reel video from generated image...")
+    reel_video_url = generate_reel_video(instagram_image, posts[0] if posts else "", day_of_week) if instagram_image else None
 
     # Schedule to GHL Social Planner: all platforms
     # Facebook + Instagram + LinkedIn: image posts
