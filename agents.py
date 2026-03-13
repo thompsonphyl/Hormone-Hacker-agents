@@ -37,10 +37,13 @@ GHL_USER_ID = os.environ.get("GHL_USER_ID", "LnjbrtBaqeOZDhGaILxA")
 
 # ── GHL Social Account IDs ────────────────────────────────────────────────────
 GHL_ACCOUNTS = {
-    "facebook":  "6840dc7c53848e6d83bc6d0c_jQOzG0xh0TF0mw1tyh8t_654078311297817_page",
-    "instagram": "6840dcc55b573ff7c0a9d7d5_jQOzG0xh0TF0mw1tyh8t_17841400917824124",
-    "linkedin":  "6840dcf25b573f565da9d7d6_jQOzG0xh0TF0mw1tyh8t_rP1hWbFZ0t_profile",
-    "tiktok":    "6840ddc93af45bd31e027866_jQOzG0xh0TF0mw1tyh8t_000VmUcZ7kPpnhwDbTqhtxgQtkePnn238_profile",
+    "facebook":   "6840dc7c53848e6d83bc6d0c_jQOzG0xh0TF0mw1tyh8t_654078311297817_page",
+    "instagram":  "6840dcc55b573ff7c0a9d7d5_jQOzG0xh0TF0mw1tyh8t_17841400917824124",
+    "linkedin":   "6840dcf25b573f565da9d7d6_jQOzG0xh0TF0mw1tyh8t_rP1hWbFZ0t_profile",
+    "tiktok":     "6840ddc93af45bd31e027866_jQOzG0xh0TF0mw1tyh8t_000VmUcZ7kPpnhwDbTqhtxgQtkePnn238_profile",
+    "tiktok2":    "6840dd03ef9a6027f37d8e07_jQOzG0xh0TF0mw1tyh8t_000bNyEnprq9Bxmn9boN8g1zGQTeDhiK0B_profile",
+    "youtube":    "6840dd3590b35ec4af3296d4_jQOzG0xh0TF0mw1tyh8t_UCdQwQTVEAYBwbrf6mRZjcPQ_profile",
+    "pinterest":  "69a2e0a4450aed0493ac4a2c_jQOzG0xh0TF0mw1tyh8t_982629349855657418_profile",
 }
 
 # ── Weekly Content Pillars ────────────────────────────────────────────────────
@@ -135,8 +138,96 @@ def send_email(subject, html_body, to=None):
     print(f"  Email sent: {subject} -> {to_addr} (ID: {result.get('id', 'unknown')})")
     return result
 
+# ── Video Generation Helper ──────────────────────────────────────────────────
+def generate_reel_video(image_url, caption_text, day_of_week):
+    """
+    Downloads the branded image, converts it to a 9:16 reel video (15 seconds),
+    uploads to CDN, and returns the CDN video URL.
+    """
+    try:
+        from moviepy.editor import ImageClip, TextClip, CompositeVideoClip
+        from PIL import Image, ImageDraw, ImageFont
+        import tempfile, os, textwrap
+
+        # Download the branded image
+        resp = requests.get(image_url, timeout=30)
+        resp.raise_for_status()
+        tmp_img = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+        tmp_img.write(resp.content)
+        tmp_img.close()
+
+        # Resize to 9:16 (1080x1920) for reels
+        img = Image.open(tmp_img.name).convert('RGB')
+        target_w, target_h = 1080, 1920
+        w, h = img.size
+        scale = target_w / w
+        new_h = int(h * scale)
+        img = img.resize((target_w, new_h), Image.LANCZOS)
+        if new_h < target_h:
+            padded = Image.new('RGB', (target_w, target_h), (20, 15, 10))
+            padded.paste(img, (0, (target_h - new_h) // 2))
+            img = padded
+        elif new_h > target_h:
+            top = (new_h - target_h) // 2
+            img = img.crop((0, top, target_w, top + target_h))
+
+        # Add a subtle caption overlay at the bottom
+        draw = ImageDraw.Draw(img)
+        # Dark overlay bar at bottom
+        overlay = Image.new('RGBA', (target_w, 220), (0, 0, 0, 160))
+        img_rgba = img.convert('RGBA')
+        img_rgba.paste(overlay, (0, target_h - 220), overlay)
+        img = img_rgba.convert('RGB')
+
+        # Save the processed image
+        tmp_reel_img = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+        img.save(tmp_reel_img.name)
+        tmp_reel_img.close()
+
+        # Create 15-second video from image
+        clip = ImageClip(tmp_reel_img.name, duration=15)
+        clip = clip.set_fps(30)
+
+        tmp_video = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+        tmp_video.close()
+        clip.write_videofile(
+            tmp_video.name,
+            codec='libx264',
+            audio=False,
+            verbose=False,
+            logger=None,
+            ffmpeg_params=['-crf', '28', '-preset', 'fast']
+        )
+
+        # Upload to CDN
+        result = __import__('subprocess').run(
+            ['manus-upload-file', '--webdev', tmp_video.name],
+            capture_output=True, text=True
+        )
+        cdn_url = None
+        for line in result.stdout.split('\n'):
+            if 'CDN URL:' in line:
+                cdn_url = line.split('CDN URL:')[1].strip()
+                break
+
+        # Cleanup
+        os.unlink(tmp_img.name)
+        os.unlink(tmp_reel_img.name)
+        os.unlink(tmp_video.name)
+
+        if cdn_url:
+            print(f'  Reel video generated: {cdn_url}')
+            return cdn_url
+        else:
+            print(f'  Reel video upload failed: {result.stdout} {result.stderr}')
+            return None
+    except Exception as e:
+        print(f'  Reel video generation error: {e}')
+        return None
+
+
 # ── GHL Social Planner Helper ─────────────────────────────────────────────────
-def ghl_post(text, platforms, scheduled_at_iso=None, image_url=None):
+def ghl_post(text, platforms, scheduled_at_iso=None, image_url=None, video_url=None, post_type='post'):
     """
     Post to GHL Social Planner.
     platforms: list of platform keys from GHL_ACCOUNTS e.g. ["facebook", "instagram"]
@@ -148,16 +239,18 @@ def ghl_post(text, platforms, scheduled_at_iso=None, image_url=None):
         print("  GHL post skipped: no valid account IDs")
         return None
 
-    # Build media array — Instagram requires at least one image
+    # Build media array — Instagram requires image, TikTok/YouTube require video
     media = []
-    if image_url:
+    if video_url:
+        media = [{"url": video_url, "type": "video/mp4"}]
+    elif image_url:
         media = [{"url": image_url, "type": "image/png"}]
 
     body = {
         "accountIds": account_ids,
         "summary": text,
         "status": "scheduled" if scheduled_at_iso else "published",
-        "type": "post",
+        "type": post_type,
         "media": media,
         "userId": GHL_USER_ID,
     }
@@ -182,7 +275,7 @@ def ghl_post(text, platforms, scheduled_at_iso=None, image_url=None):
         print(f"  GHL post FAILED: {resp.status_code} -> {resp.text[:300]}")
         return None
 
-def schedule_today_posts(posts_by_platform, image_url=None):
+def schedule_today_posts(posts_by_platform, image_url=None, video_url=None):
     """
     Schedule 3 posts today at 10am, 1pm, 7pm ET (14:00, 17:00, 23:00 UTC).
     posts_by_platform: dict with keys like "facebook", "instagram"
@@ -214,9 +307,11 @@ def schedule_today_posts(posts_by_platform, image_url=None):
                     # All slots passed today — schedule for tomorrow 10am ET
                     tomorrow = today + timedelta(days=1)
                     scheduled_at = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 14, 0, 0, tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-            # Instagram always needs an image; Facebook works with or without
-            img = image_url if platform == "instagram" else None
-            result = ghl_post(text, [platform], scheduled_at, image_url=img)
+            # Determine media type per platform
+            vid = video_url if platform in ("tiktok", "tiktok2", "youtube") else None
+            img = image_url if platform in ("instagram", "pinterest") else None
+            ptype = "reel" if vid else "post"
+            result = ghl_post(text, [platform], scheduled_at, image_url=img, video_url=vid, post_type=ptype)
             results.append(result)
     return results
 
@@ -320,14 +415,37 @@ STORY SCRIPT:
     # Get the branded image for today's Instagram posts
     instagram_image = INSTAGRAM_IMAGES.get(day_of_week, INSTAGRAM_IMAGES["Sunday"])
 
-    # Schedule to GHL Social Planner: Facebook + Instagram
+    # Generate reel video from today's branded image
+    print("  Generating reel video from branded image...")
+    reel_video_url = generate_reel_video(instagram_image, posts[0] if posts else "", day_of_week)
+
+    # Schedule to GHL Social Planner: all platforms
+    # Facebook + Instagram + LinkedIn: image posts
+    # TikTok + TikTok2 + YouTube: video reels
+    # Pinterest: image post
     posted_results = schedule_today_posts(
         {
-            "facebook": posts,
+            "facebook":  posts,
             "instagram": posts,
+            "linkedin":  posts,
+            "pinterest": posts,
         },
         image_url=instagram_image
     )
+
+    # Post reel video to TikTok and YouTube if video was generated
+    if reel_video_url:
+        reel_results = schedule_today_posts(
+            {
+                "tiktok":  posts,
+                "tiktok2": posts,
+                "youtube": posts,
+            },
+            video_url=reel_video_url
+        )
+        posted_results.extend(reel_results)
+    else:
+        print("  Skipping TikTok/YouTube — video generation failed")
 
     # Count successful posts
     successful = sum(1 for r in posted_results if r is not None)
@@ -351,7 +469,7 @@ STORY SCRIPT:
         <div style='font-family:Georgia,serif;max-width:600px;margin:0 auto;'>
             <h2 style='color:#b85c38;'>Daily Auto-Post Summary</h2>
             <p style='color:#666;font-size:13px;'>Generated and scheduled {today} | {day_of_week} Pillar: <strong>{pillar}</strong></p>
-            <p style='color:#3a6e3e;font-size:13px;font-weight:600;'>Scheduled to: Facebook + Instagram | Times: 10am, 1pm, 7pm ET</p>
+            <p style='color:#3a6e3e;font-size:13px;font-weight:600;'>Scheduled to: Facebook, Instagram, LinkedIn, Pinterest (image) + TikTok, YouTube (reel video) | Times: 10am, 1pm, 7pm ET</p>
             <hr style='border:none;border-top:1px solid #e8d8cc;margin:16px 0;'>
             {posts_html}
             {story_html}
