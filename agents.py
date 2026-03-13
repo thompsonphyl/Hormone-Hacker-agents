@@ -294,20 +294,26 @@ def schedule_today_posts(posts_by_platform, image_url=None, video_url=None):
         datetime(today.year, today.month, today.day, 23, 0, 0, tzinfo=timezone.utc),   # 7pm ET
     ]
 
+    # Build the actual schedule: use today's future slots, then overflow to tomorrow
+    from datetime import timedelta as td
+    tomorrow = today + td(days=1)
+    tomorrow_slots = [
+        datetime(tomorrow.year, tomorrow.month, tomorrow.day, 14, 0, 0, tzinfo=timezone.utc),
+        datetime(tomorrow.year, tomorrow.month, tomorrow.day, 17, 0, 0, tzinfo=timezone.utc),
+        datetime(tomorrow.year, tomorrow.month, tomorrow.day, 23, 0, 0, tzinfo=timezone.utc),
+    ]
+    # Build ordered list of all available slots (today future + tomorrow)
+    all_slots = [t for t in post_times_utc if t > now_utc + td(minutes=5)] + tomorrow_slots
+    # Ensure we always have at least 3 slots
+    while len(all_slots) < 3:
+        all_slots.append(all_slots[-1] + td(hours=3))
+
     results = []
     for platform, post_texts in posts_by_platform.items():
         for i, text in enumerate(post_texts[:3]):
-            scheduled_at = post_times_utc[i].strftime("%Y-%m-%dT%H:%M:%S.000Z")
-            # Skip times in the past — push to next available slot
-            if post_times_utc[i] < now_utc:
-                # Find next slot that is in the future
-                future_slots = [t for t in post_times_utc if t > now_utc]
-                if future_slots:
-                    scheduled_at = future_slots[0].strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                else:
-                    # All slots passed today — schedule for tomorrow 10am ET
-                    tomorrow = today + timedelta(days=1)
-                    scheduled_at = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 14, 0, 0, tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            # Use the i-th available future slot
+            slot = all_slots[i] if i < len(all_slots) else all_slots[-1]
+            scheduled_at = slot.strftime("%Y-%m-%dT%H:%M:%S.000Z")
             # Determine media type per platform
             vid = video_url if platform in ("tiktok", "tiktok2", "youtube") else None
             img = image_url if platform in ("instagram", "pinterest") else None
