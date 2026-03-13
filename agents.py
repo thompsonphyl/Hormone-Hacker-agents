@@ -134,11 +134,13 @@ def send_email(subject, html_body, to=None):
 def generate_post_image(caption_text, pillar, day_of_week):
     """
     Generate a unique, relevant image for today's post using Gemini Imagen 4.
+    Adds a clean branded text overlay using the actual GPT-4o caption (no AI-generated text).
     Returns a public CDN URL for the image, or None on failure.
     """
-    import base64, tempfile
+    import base64, tempfile, textwrap, os
+    from PIL import Image, ImageDraw, ImageFont
 
-    # Build a detailed image prompt from the post content and pillar
+    # Build a detailed image prompt — explicitly forbid any text/words in the image
     pillar_visuals = {
         "Monday":    "GLP-1 hormone education, blood sugar balance, metabolism, warm kitchen or morning routine",
         "Tuesday":   "hormone-friendly foods, colorful whole foods, meal prep, protein-rich plate, warm earthy tones",
@@ -150,15 +152,12 @@ def generate_post_image(caption_text, pillar, day_of_week):
     }
     visual_context = pillar_visuals.get(day_of_week, "wellness lifestyle, confident woman in midlife, warm natural light")
 
-    # Extract key theme words from the caption (first 120 chars)
-    caption_snippet = caption_text[:120].replace('"', '').replace("'", '')
-
     prompt = (
-        f"Professional wellness lifestyle photo for Instagram. Theme: {visual_context}. "
-        f"Content context: {caption_snippet}. "
+        f"Pure photography, absolutely NO text, NO words, NO letters, NO captions, NO watermarks, NO signs anywhere in the image. "
+        f"Professional wellness lifestyle photo. Theme: {visual_context}. "
         f"Style: warm earthy tones, golden hour natural light, empowering and authentic, "
         f"confident Black woman in her 40s-50s, hormone health and midlife wellness aesthetic, "
-        f"clean and editorial, no text overlays, 9:16 vertical portrait format."
+        f"clean editorial photography only, 9:16 vertical portrait format."
     )
 
     try:
@@ -180,22 +179,77 @@ def generate_post_image(caption_text, pillar, day_of_week):
             print("  Imagen 4: no image data returned")
             return None
 
-        # Save to temp file
-        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-        tmp.write(base64.b64decode(img_b64))
-        tmp.close()
+        # Save raw image
+        tmp_raw = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+        tmp_raw.write(base64.b64decode(img_b64))
+        tmp_raw.close()
+
+        # Add clean branded text overlay using Python (not AI-generated text)
+        img = Image.open(tmp_raw.name).convert("RGBA")
+        w, h = img.size
+
+        # Extract first sentence of caption for overlay (up to 80 chars)
+        first_sentence = caption_text.split(".")[0].strip()
+        if len(first_sentence) > 80:
+            first_sentence = first_sentence[:77] + "..."
+
+        # Dark gradient overlay at bottom 30% of image
+        overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        bar_top = int(h * 0.68)
+        for y in range(bar_top, h):
+            alpha = int(180 * (y - bar_top) / (h - bar_top))
+            overlay_draw.rectangle([(0, y), (w, y)], fill=(0, 0, 0, alpha))
+        img = Image.alpha_composite(img, overlay).convert("RGB")
+
+        # Add text using PIL default font (always available, no font file needed)
+        draw = ImageDraw.Draw(img)
+        try:
+            font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size=int(w * 0.055))
+            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", size=int(w * 0.035))
+        except Exception:
+            font_large = ImageFont.load_default()
+            font_small = font_large
+
+        # Wrap text to fit width
+        wrapped = textwrap.fill(first_sentence, width=28)
+        lines = wrapped.split("\n")
+
+        text_y = int(h * 0.72)
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font_large)
+            text_w = bbox[2] - bbox[0]
+            x = (w - text_w) // 2
+            # Shadow
+            draw.text((x + 2, text_y + 2), line, font=font_large, fill=(0, 0, 0, 180))
+            # White text
+            draw.text((x, text_y), line, font=font_large, fill=(255, 255, 255, 255))
+            text_y += int(w * 0.065)
+
+        # Brand handle at very bottom
+        handle = "@womenshormonehacker"
+        bbox = draw.textbbox((0, 0), handle, font=font_small)
+        handle_w = bbox[2] - bbox[0]
+        draw.text(((w - handle_w) // 2, h - int(h * 0.05)), handle, font=font_small, fill=(220, 200, 170, 220))
+
+        # Save final image
+        tmp_final = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+        img.save(tmp_final.name, "JPEG", quality=92)
+        tmp_final.close()
+        os.unlink(tmp_raw.name)
 
         # Upload to catbox.moe CDN
-        with open(tmp.name, "rb") as f:
+        with open(tmp_final.name, "rb") as f:
             upload_resp = requests.post(
                 "https://catbox.moe/user/api.php",
                 data={"reqtype": "fileupload"},
                 files={"fileToUpload": ("post_image.jpg", f, "image/jpeg")},
                 timeout=30
             )
+        os.unlink(tmp_final.name)
         cdn_url = upload_resp.text.strip()
         if cdn_url.startswith("https://"):
-            print(f"  Imagen 4 image generated and uploaded: {cdn_url}")
+            print(f"  Imagen 4 image with overlay uploaded: {cdn_url}")
             return cdn_url
         else:
             print(f"  CDN upload failed: {cdn_url[:100]}")
